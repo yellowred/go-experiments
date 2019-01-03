@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/boltdb/bolt"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 func fillBalCalcOptimized() {
@@ -75,45 +73,6 @@ func fillBalCalcOptimized() {
 
 }
 
-func balanceForOptimized() {
-	txDb, err := leveldb.OpenFile("tx.dat", nil)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer txDb.Close()
-
-	wallets := make(map[string]int64)
-	iter := txDb.NewIterator(&util.Range{Start: []byte("391182_"), Limit: []byte("446032_")}, nil)
-	var txIndex int
-	// iter := blocksDb.NewIterator(nil, nil)
-	for iter.Next() {
-		key := strings.Split(string(iter.Key()), "_")
-		voutData := strings.Split(string(iter.Value()), "_")
-		value, _ := strconv.ParseInt(voutData[2], 10, 64)
-		// log.Println(vout)
-		switch purpose := voutData[3]; purpose {
-		case "player-withdrawal":
-			wallets[key[1]] -= value
-		case "player-deposit":
-			wallets[key[1]] += value
-		}
-		txIndex++
-	}
-
-	iter.Release()
-	err = iter.Error()
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	var total int64
-	for _, wallet := range wallets {
-		total += wallet
-	}
-	log.Println("Wallets count:", len(wallets))
-	log.Println("VOuts count:", txIndex)
-	log.Println("Balance:", strconv.Itoa(int(total)))
-}
 func ats(arr []string) string {
 	return strings.Join(arr, "_")
 }
