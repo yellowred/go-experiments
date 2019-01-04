@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jmhodges/levigo"
 )
@@ -71,12 +72,16 @@ func balanceForOptimized() {
 	opts := levigo.NewOptions()
 	opts.SetCache(levigo.NewLRUCache(3 << 30))
 	opts.SetCreateIfMissing(true)
+	opts.SetBlockSize(65535)
+	// opts.SetCompression(levigo.NoCompression)
+
 	txDb, err := levigo.Open("txs.dat", opts)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	defer txDb.Close()
 	ro := levigo.NewReadOptions()
+	ro.SetFillCache(false)
 	defer ro.Close()
 
 	if err != nil {
@@ -84,13 +89,15 @@ func balanceForOptimized() {
 	}
 	defer txDb.Close()
 
+	start := time.Now()
+
 	wallets := make(map[string]int64)
 	// iter := txDb.NewIterator(&util.Range{Start: []byte("391182_"), Limit: []byte("446032_")}, nil)
 	iter := txDb.NewIterator(ro)
 	defer iter.Close()
 	var txIndex int
 	// iter := blocksDb.NewIterator(nil, nil)
-	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+	for iter.Seek([]byte("391182_")); iter.Valid() && string(iter.Key())[0:7] != "446032_"; iter.Next() {
 		key := strings.Split(string(iter.Key()), "_")
 		voutData := strings.Split(string(iter.Value()), "_")
 		value, _ := strconv.ParseInt(voutData[2], 10, 64)
@@ -113,6 +120,10 @@ func balanceForOptimized() {
 	for _, wallet := range wallets {
 		total += wallet
 	}
+
+	elapsed := time.Since(start)
+	log.Printf("Balance took %s", elapsed)
+
 	log.Println("Wallets count:", len(wallets))
 	log.Println("VOuts count:", txIndex)
 	log.Println("Balance:", strconv.Itoa(int(total)))
