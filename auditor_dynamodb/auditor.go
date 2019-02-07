@@ -8,11 +8,15 @@ package main
 import (
 	"log"
 	"math/rand"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
+
 	// "time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
@@ -67,12 +71,48 @@ func createTables() {
 }
 
 type Transaction struct {
-	BlockHeight 	int       `json:"block_height"`
-	TransactionID string    `json:"transaction_id"`
-	FromWallet 		string    `json:"from_wallet"`
-	ToWallet 			string    `json:"to_wallet"`
-	Value 				int 		  `json:"value"`
-	Purpose 			string    `json:"purpose"`
+	BlockHeight   int    `json:"block_height"`
+	TransactionID string `json:"transaction_id"`
+	FromWallet    string `json:"from_wallet"`
+	ToWallet      string `json:"to_wallet"`
+	Value         int    `json:"value"`
+	Purpose       string `json:"purpose"`
+}
+
+const xthreads = 1000
+
+func put(batchItemsArray []*dynamodb.WriteRequest, svc *dynamodb.DynamoDB) {
+	input := &dynamodb.BatchWriteItemInput{
+		RequestItems: map[string][]*dynamodb.WriteRequest{
+			"transactions": batchItemsArray,
+		},
+	}
+
+	result, err := svc.BatchWriteItem(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case dynamodb.ErrCodeProvisionedThroughputExceededException:
+				log.Println(dynamodb.ErrCodeProvisionedThroughputExceededException, aerr.Error())
+			case dynamodb.ErrCodeResourceNotFoundException:
+				log.Println(dynamodb.ErrCodeResourceNotFoundException, aerr.Error())
+			case dynamodb.ErrCodeItemCollectionSizeLimitExceededException:
+				log.Println(dynamodb.ErrCodeItemCollectionSizeLimitExceededException, aerr.Error())
+			case dynamodb.ErrCodeRequestLimitExceeded:
+				log.Println(dynamodb.ErrCodeRequestLimitExceeded, aerr.Error())
+			case dynamodb.ErrCodeInternalServerError:
+				log.Println(dynamodb.ErrCodeInternalServerError, aerr.Error())
+			default:
+				log.Println(aerr.Error())
+			}
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			log.Println(err.Error())
+		}
+	}
+
+	log.Println(result)
 }
 
 func fillBalCalcOptimized() {
@@ -85,10 +125,32 @@ func fillBalCalcOptimized() {
 
 	svc := dynamodb.New(sess)
 
-
 	var blockNumber = 1
 	var txNumber = 1
 	var total = 0
+
+	var batchCount = 0
+	batchItems := make([]*dynamodb.WriteRequest, 25)
+
+	// start workers
+	messages := make(chan []*dynamodb.WriteRequest)
+	var wg sync.WaitGroup
+
+	// This starts xthreads number of goroutines that wait for something to do
+	wg.Add(xthreads)
+	for i := 0; i < xthreads; i++ {
+		go func() {
+			for {
+				a, ok := <-messages
+				if !ok { // if there is nothing to do and the channel has been closed then end the goroutine
+					wg.Done()
+					return
+				}
+				put(a, svc) // do the thing
+			}
+		}()
+	}
+
 	for blockNumber <= 1000000 {
 
 		var txsInBlock = rand.Intn(40) // number of txs in a block
@@ -123,35 +185,30 @@ func fillBalCalcOptimized() {
 				}
 
 				tx := Transaction{
-					BlockHeight:  blockNumber,
+					BlockHeight:   blockNumber,
 					TransactionID: transactionID,
-					FromWallet: fromWalletHash,
-					ToWallet: toWalletHash,
-					Value: rand.Intn(10),
-					Purpose: purposeLabel,
+					FromWallet:    fromWalletHash,
+					ToWallet:      toWalletHash,
+					Value:         rand.Intn(10),
+					Purpose:       purposeLabel,
 				}
 
 				av, err := dynamodbattribute.MarshalMap(tx)
-
-				input := &dynamodb.PutItemInput{
-					Item:      av,
-					TableName: aws.String("transactions"),
+				if err != nil {
+					log.Fatalln(err)
 				}
 
-				_, err = svc.PutItem(input)
-				if err != nil {
-					log.Println(err.Error())
-					return
-				}
-
-				total++
-				if err != nil {
-					log.Fatal("Badger error:", err)
+				if batchCount < 25 {
+					batchItems[batchCount] = &dynamodb.WriteRequest{
+						PutRequest: &dynamodb.PutRequest{Item: av},
+					}
+					batchCount++
 				} else {
-					log.Println("Filled ", blockNumber, transactionID)
+					messages <- batchItems[0 : batchCount-1]
+					batchCount = 0
 				}
+				total++
 				k++
-
 			}
 			l++
 			txNumber++
@@ -159,6 +216,7 @@ func fillBalCalcOptimized() {
 		blockNumber++
 	}
 
+	wg.Wait()
 	log.Println(blockNumber, txNumber, total)
 }
 
@@ -214,8 +272,13 @@ func cs(a string, b string) string {
 }
 
 func main() {
-	// createTables()
-
-	fillBalCalcOptimized()
-	// balanceForOptimized(txDb)
+	if len(os.Args) > 1 {
+		if os.Args[1] == "create" {
+			createTables()
+		} else if os.Args[1] == "fill" {
+			fillBalCalcOptimized()
+		} else if os.Args[1] == "query" {
+			// balanceForOptimized(txDb)
+		}
+	}
 }
