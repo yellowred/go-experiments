@@ -20,6 +20,7 @@ package main
 import (
 	"log"
 	"math/rand"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -169,11 +170,20 @@ func cs(a string, b string) string {
 }
 
 func main() {
-	txDb, err := sql.Open("postgres", "postgres://postgres:postgres@127.0.0.1/postgres?sslmode=disable")
+	if len(os.Args) == 1 {
+		log.Fatalln("Usage: auditor <conn_string> <fill|query>")
+	}
+	txDb, err := sql.Open("postgres", os.Args[1]) //"postgres://postgres:postgres@127.0.0.1/postgres?sslmode=disable"
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// fillBalCalcOptimized(txDb)
-	balanceForOptimized(txDb)
+	// createTables()
+	if len(os.Args) > 2 {
+		if os.Args[2] == "fill" {
+			fillBalCalcOptimized(txDb)
+		} else if os.Args[2] == "query" {
+			balanceForOptimized(txDb)
+		}
+	}
 }
