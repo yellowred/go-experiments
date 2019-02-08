@@ -118,8 +118,9 @@ func fillBalCalcOptimized(txDb *sql.DB) {
 	log.Println(blockNumber, txNumber, total)
 }
 
-func balanceForOptimized(txDb *sql.DB) {
+func balanceForOptimized(startBlock int64, endBlock int64, txDb *sql.DB) {
 
+	log.Println("Calculating balance between:", startBlock, endBlock)
 	start := time.Now()
 
 	var txIndex int
@@ -128,7 +129,7 @@ func balanceForOptimized(txDb *sql.DB) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	rows, err := queryStmt.Query(391182, 446032)
+	rows, err := queryStmt.Query(startBlock, endBlock)
 	defer rows.Close()
 	var total int
 
@@ -183,7 +184,13 @@ func main() {
 		if os.Args[2] == "fill" {
 			fillBalCalcOptimized(txDb)
 		} else if os.Args[2] == "query" {
-			balanceForOptimized(txDb)
+			if len(os.Args) >= 4 {
+				startBlock, _ := strconv.ParseInt(os.Args[3], 10, 64)
+				endBlock, _ := strconv.ParseInt(os.Args[4], 10, 64)
+				balanceForOptimized(startBlock, endBlock, txDb)
+			} else {
+				log.Println("startBlock, endBlock are required.")
+			}
 		}
 	}
 }
