@@ -6,12 +6,14 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	// "time"
 
@@ -220,48 +222,83 @@ func fillBalCalcOptimized() {
 	log.Println(blockNumber, txNumber, total)
 }
 
-// func balanceForOptimized(txDb *sql.DB) {
+func balanceForOptimized() {
 
-// 	start := time.Now()
+	config := &aws.Config{
+		Region:   aws.String("us-west-2"),
+		Endpoint: aws.String("http://localhost:8000"),
+	}
 
-// 	var txIndex int
-// 	// wallets := make(map[string]int64)
-// 	queryStmt, err := txDb.Prepare("SELECT block_height, transaction_hash, identifier, purpose, value FROM auditor_txs WHERE block_height >= $1 AND block_height <= $2;")
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	rows, err := queryStmt.Query(391182, 446032)
-// 	defer rows.Close()
-// 	var total int
+	sess := session.Must(session.NewSession(config))
 
-// 	for rows.Next() {
-// 		var blockHeight int
-// 		var txHash string
-// 		var identifier int
-// 		var purpose string
-// 		var amount int
+	svc := dynamodb.New(sess)
 
-// 		if err := rows.Scan(&blockHeight, &txHash, &identifier, &purpose, &amount); err != nil {
-// 			log.Fatal(err)
-// 		}
-// 		// log.Println(txHash)
-// 		// amount, _ := strconv.ParseInt(row[4], 10, 64)
-// 		switch purpose {
-// 		case "player-withdrawal":
-// 			total -= amount
-// 		case "player-deposit":
-// 			total += amount
-// 		}
-// 		txIndex++
-// 	}
+	start := time.Now()
 
-// 	elapsed := time.Since(start)
-// 	log.Printf("Balance took %s", elapsed)
+	var txIndex int
+	// wallets := make(map[string]int64)
 
-// 	// log.Println("Wallets count:", len(wallets))
-// 	log.Println("VOuts count:", txIndex)
-// 	log.Println("Balance:", strconv.Itoa(int(total)))
-// }
+	input := &dynamodb.QueryInput{
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":v1": {
+				S: aws.String("No One You Know"),
+			},
+		},
+		KeyConditionExpression: aws.String("Artist = :v1"),
+		ProjectionExpression:   aws.String("SongTitle"),
+		TableName:              aws.String("Music"),
+	}
+
+	result, err := svc.Query(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case dynamodb.ErrCodeProvisionedThroughputExceededException:
+				fmt.Println(dynamodb.ErrCodeProvisionedThroughputExceededException, aerr.Error())
+			case dynamodb.ErrCodeResourceNotFoundException:
+				fmt.Println(dynamodb.ErrCodeResourceNotFoundException, aerr.Error())
+			case dynamodb.ErrCodeRequestLimitExceeded:
+				fmt.Println(dynamodb.ErrCodeRequestLimitExceeded, aerr.Error())
+			case dynamodb.ErrCodeInternalServerError:
+				fmt.Println(dynamodb.ErrCodeInternalServerError, aerr.Error())
+			default:
+				fmt.Println(aerr.Error())
+			}
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			fmt.Println(err.Error())
+		}
+		return
+	}
+
+	var total int
+
+	for _, item := range result.Items {
+		// var blockHeight int
+		// var txHash string
+		// var identifier int
+		var purpose string
+		var amount int
+
+		log.Println(item)
+		// amount, _ := strconv.ParseInt(row[4], 10, 64)
+		switch purpose {
+		case "player-withdrawal":
+			total -= amount
+		case "player-deposit":
+			total += amount
+		}
+		txIndex++
+	}
+
+	elapsed := time.Since(start)
+	log.Printf("Balance took %s", elapsed)
+
+	// log.Println("Wallets count:", len(wallets))
+	log.Println("VOuts count:", txIndex)
+	log.Println("Balance:", strconv.Itoa(int(total)))
+}
 
 func ats(arr []string) string {
 	return strings.Join(arr, "_")
@@ -278,7 +315,7 @@ func main() {
 		} else if os.Args[1] == "fill" {
 			fillBalCalcOptimized()
 		} else if os.Args[1] == "query" {
-			// balanceForOptimized(txDb)
+			balanceForOptimized()
 		}
 	}
 }
